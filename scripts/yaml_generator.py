@@ -10,17 +10,15 @@ import yaml
 # These codes tell the model exactly which 3D chemical structure to use for that base.
 TOKEN_TO_CCD = {
     # 2'-O-methyl (Common in RNA therapeutics)
-    'mG': 'OMG', 
-    'mA': 'A2M', 
-    'mC': 'OMC', 
-    'mU': 'OMU',
-    
+    "mG": "OMG",
+    "mA": "A2M",
+    "mC": "OMC",
+    "mU": "OMU",
     # 2'-Fluoro (Common for stability)
-    'fU': 'UFR', 
-    'fC': 'CFL', 
-    'fA': '2FA', 
-    'fG': 'GF2',
-    
+    "fU": "UFR",
+    "fC": "CFL",
+    "fA": "2FA",
+    "fG": "GF2",
     # Other common modifications can be added here
     "(vU)": "UNK",  # Placeholder if specific CCD is unknown
 }
@@ -31,6 +29,13 @@ VALID_AMINO_ACIDS = set("ACDEFGHIKLMNPQRSTVWY")
 
 # Display settings
 PREVIEW_LENGTH = 15
+
+# Default output filenames by mode
+DEFAULT_FILENAMES = {
+    "protein": "boltz_protein_structure.yaml",
+    "rna": "boltz_rna_structure.yaml",
+    "protein_rna": "boltz_protein_rna_structure.yaml",
+}
 
 
 def validate_protein_sequence(seq: str) -> tuple[bool, str | None]:
@@ -52,49 +57,51 @@ def validate_rna_sequence(seq: str) -> tuple[bool, str | None]:
 def parse_complex_rna_for_structure(sequence_str: str) -> tuple[str, list[dict]]:
     """
     Parses an RNA string with modification tags.
-    Returns:
+
+    Returns
+    -------
       1. The standard sequence string (e.g., "ACGU") required for the backbone.
       2. A list of modifications with 1-based positions and CCD codes.
     """
     # Regex finds tokens: r/d/f/m + Letter, or specific tags like (vU)
-    token_pattern = re.compile(r'([rdfm][ACGUT])|(\(vU\))')
+    token_pattern = re.compile(r"([rdfm][ACGUT])|(\(vU\))")
     matches = token_pattern.findall(sequence_str)
-    
+
     plain_seq = []
     modifications = []
-    
+
     for i, match in enumerate(matches):
         # Boltz uses 1-based indexing for modifications
-        position = i + 1 
-        token = ''.join(match)
-        
+        position = i + 1
+        token = "".join(match)
+
         # 1. Determine Standard Backbone Base
-        if token == '(vU)':
-            base = 'U'
+        if token == "(vU)":
+            base = "U"
         else:
             # Extract the letter (last char)
             base = token[-1].upper()
             # Map DNA 'T' to RNA 'U' for the backbone sequence
-            if base == 'T': 
-                base = 'U'
-        
+            if base == "T":
+                base = "U"
+
         plain_seq.append(base)
-        
+
         # 2. Map to CCD Code for 3D Structure
         if token in TOKEN_TO_CCD:
-            modifications.append({
-                'position': position,
-                'ccd': TOKEN_TO_CCD[token]
-            })
-        elif token.startswith('f') or token.startswith('m'):
-            print(f"Warning: Modification '{token}' not found in library. Using standard '{base}' structure.")
-            
+            modifications.append({"position": position, "ccd": TOKEN_TO_CCD[token]})
+        elif token.startswith(("d", "f", "m")):
+            print(
+                f"Warning: Modification '{token}' not found in library. Using standard '{base}' structure."
+            )
+
     return "".join(plain_seq), modifications
+
 
 def get_user_input() -> dict:
     """Collect user input for protein and/or RNA sequences.
 
-    Returns a dict with keys: protein, rna, mods, mode
+    Returns a dict with keys: protein, rna, mods, mode, output_path
     """
     print("==================================================")
     print("   Boltz-2 Structure Prediction Input Generator   ")
@@ -113,7 +120,7 @@ def get_user_input() -> dict:
         if not valid:
             print(f"Error: {error}")
             sys.exit(1)
-        result["protein"] = prot_raw
+        result["protein"] = prot_raw.upper()
         print("    -> Protein sequence accepted.")
 
     # 2. RNA Input (optional)
@@ -126,14 +133,26 @@ def get_user_input() -> dict:
         if re.search(r"[rdfm][ACGUT]|\(vU\)", rna_raw):
             print("\n    -> Detected modified sequence format.")
             rna_seq, mods = parse_complex_rna_for_structure(rna_raw)
+
+            if not rna_seq:
+                print("Error: No valid bases found in modified sequence.")
+                sys.exit(1)
+
+            valid, error = validate_rna_sequence(rna_seq)
+            if not valid:
+                print(f"Error: {error}")
+                sys.exit(1)
+
             preview = rna_seq[:PREVIEW_LENGTH]
             if len(rna_seq) > PREVIEW_LENGTH:
                 preview += "..."
             print(f"    -> Parsed Backbone: {preview}")
             if mods:
                 first_mod = mods[0]
-                print(f"    -> Modifications: {len(mods)} found "
-                      f"(e.g. {first_mod['ccd']} at pos {first_mod['position']})")
+                print(
+                    f"    -> Modifications: {len(mods)} found "
+                    f"(e.g. {first_mod['ccd']} at pos {first_mod['position']})"
+                )
             else:
                 print("    -> Modifications: None found")
             result["mods"] = mods
@@ -161,7 +180,17 @@ def get_user_input() -> dict:
     else:
         result["mode"] = "rna"
 
+    # Determine default filename for display
+    default_name = DEFAULT_FILENAMES[result["mode"]]
+
+    # 3. Output path (optional)
+    print("\n[3] Output file path (press Enter for default):")
+    print(f"    Default: {default_name}")
+    output_path = input("    > ").strip()
+    result["output_path"] = output_path if output_path else None
+
     return result
+
 
 def build_yaml_data(user_input: dict) -> tuple[dict, str]:
     """Build YAML data structure based on user input.
@@ -174,12 +203,14 @@ def build_yaml_data(user_input: dict) -> tuple[dict, str]:
 
     # Add protein if provided
     if user_input["protein"]:
-        sequences.append({
-            "protein": {
-                "id": chain_id,
-                "sequence": user_input["protein"],
+        sequences.append(
+            {
+                "protein": {
+                    "id": chain_id,
+                    "sequence": user_input["protein"],
+                }
             }
-        })
+        )
         chain_id = "B"  # Next entity gets "B"
 
     # Add RNA if provided
@@ -196,14 +227,7 @@ def build_yaml_data(user_input: dict) -> tuple[dict, str]:
         sequences.append(rna_entry)
 
     data = {"version": 1, "sequences": sequences}
-
-    # Determine filename based on mode
-    filenames = {
-        "protein": "boltz_protein_structure.yaml",
-        "rna": "boltz_rna_structure.yaml",
-        "protein_rna": "boltz_protein_rna_structure.yaml",
-    }
-    filename = filenames[mode]
+    filename = DEFAULT_FILENAMES[mode]
 
     return data, filename
 
@@ -228,13 +252,27 @@ def print_success_message(filename: str, mode: str) -> None:
 def main() -> None:
     """Run the YAML generator."""
     user_input = get_user_input()
-    data, filename = build_yaml_data(user_input)
+    data, default_filename = build_yaml_data(user_input)
+
+    # Use custom output path if provided, otherwise use default
+    if user_input["output_path"]:
+        output_path = Path(user_input["output_path"])
+        # If user provided a directory, append the default filename
+        if output_path.is_dir() or str(output_path).endswith("/"):
+            output_path = output_path / default_filename
+    else:
+        output_path = Path(default_filename)
+
+    # Create parent directories if needed (skip for current directory)
+    if output_path.parent.parts:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Save File
-    with Path(filename).open("w") as f:
+    with output_path.open("w") as f:
         yaml.dump(data, f, sort_keys=False, default_flow_style=False)
 
-    print_success_message(filename, user_input["mode"])
+    print_success_message(str(output_path), user_input["mode"])
+
 
 if __name__ == "__main__":
     main()
