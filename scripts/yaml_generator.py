@@ -27,6 +27,40 @@ TOKEN_TO_CCD = {
 VALID_RNA_BASES = set("ACGUT")
 VALID_AMINO_ACIDS = set("ACDEFGHIKLMNPQRSTVWY")
 
+# Modification presets for plain RNA sequences
+MODIFICATION_PRESETS = {
+    "1": {
+        "name": "2'-fluoro on all pyrimidines (C, U)",
+        "bases": "CU",
+        "prefix": "f",
+    },
+    "2": {
+        "name": "2'-O-methyl on all pyrimidines (C, U)",
+        "bases": "CU",
+        "prefix": "m",
+    },
+    "3": {
+        "name": "2'-fluoro on all purines (A, G)",
+        "bases": "AG",
+        "prefix": "f",
+    },
+    "4": {
+        "name": "2'-O-methyl on all purines (A, G)",
+        "bases": "AG",
+        "prefix": "m",
+    },
+    "5": {
+        "name": "2'-fluoro on all bases",
+        "bases": "ACGU",
+        "prefix": "f",
+    },
+    "6": {
+        "name": "2'-O-methyl on all bases",
+        "bases": "ACGU",
+        "prefix": "m",
+    },
+}
+
 # Display settings
 PREVIEW_LENGTH = 15
 
@@ -44,6 +78,56 @@ def validate_protein_sequence(seq: str) -> tuple[bool, str | None]:
     if invalid:
         return False, f"Invalid amino acids: {', '.join(sorted(invalid))}"
     return True, None
+
+
+def apply_modification_presets(sequence: str, preset_keys: list[str]) -> list[dict]:
+    """Apply modification presets to a plain RNA sequence.
+
+    Parameters
+    ----------
+    sequence : str
+        The plain RNA sequence (e.g., "ACGU").
+    preset_keys : list[str]
+        List of preset keys (e.g., ["1", "3"]) to apply.
+
+    Returns
+    -------
+    list[dict]
+        List of modifications with 1-based positions and CCD codes.
+    """
+    modifications = []
+    modified_positions = set()  # Track which positions already have modifications
+
+    for key in preset_keys:
+        if key not in MODIFICATION_PRESETS:
+            print(f"    Warning: Unknown preset '{key}', skipping.")
+            continue
+
+        preset = MODIFICATION_PRESETS[key]
+        target_bases = set(preset["bases"])
+        prefix = preset["prefix"]
+
+        base_counts = dict.fromkeys(target_bases, 0)
+
+        for i, base in enumerate(sequence):
+            position = i + 1  # 1-based indexing
+            if base in target_bases and position not in modified_positions:
+                token = f"{prefix}{base}"
+                if token in TOKEN_TO_CCD:
+                    ccd_code = TOKEN_TO_CCD[token]
+                    modifications.append({"position": position, "ccd": ccd_code})
+                    modified_positions.add(position)
+                    base_counts[base] += 1
+
+        # Report what was applied
+        counts_str = ", ".join(f"{b}: {c}" for b, c in base_counts.items() if c > 0)
+        total = sum(base_counts.values())
+        if total > 0:
+            print(f"    -> Applied {preset['name']}: {total} bases ({counts_str})")
+
+    # Sort by position for clean output
+    modifications.sort(key=lambda x: x["position"])
+    return modifications
 
 
 def validate_rna_sequence(seq: str) -> tuple[bool, str | None]:
@@ -92,7 +176,8 @@ def parse_complex_rna_for_structure(sequence_str: str) -> tuple[str, list[dict]]
             modifications.append({"position": position, "ccd": TOKEN_TO_CCD[token]})
         elif token.startswith(("d", "f", "m")):
             print(
-                f"Warning: Modification '{token}' not found in library. Using standard '{base}' structure."
+                f"Warning: Modification '{token}' not found in library. "
+                f"Using standard '{base}' structure."
             )
 
     return "".join(plain_seq), modifications
@@ -164,6 +249,20 @@ def get_user_input() -> dict:
             if not valid:
                 print(f"Error: {error}")
                 sys.exit(1)
+
+            # Offer modification presets for plain sequences
+            print("\n[2b] Add modifications? (press Enter to skip)")
+            print("     Options:")
+            for key, preset in MODIFICATION_PRESETS.items():
+                print(f"       {key}. {preset['name']}")
+            print("     Enter option number(s) separated by commas (e.g., 1,4):")
+            mod_choice = input("    > ").strip()
+
+            if mod_choice:
+                preset_keys = [k.strip() for k in mod_choice.split(",")]
+                mods = apply_modification_presets(rna_seq, preset_keys)
+                if mods:
+                    result["mods"] = mods
 
         result["rna"] = rna_seq
 
