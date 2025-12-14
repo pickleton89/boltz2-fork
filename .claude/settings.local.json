@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nadd yaml generator script for Boltz-2 structure prediction\n\nInteractive CLI tool that generates Boltz-2 compatible YAML input files.\nSupports three modes:\n- Protein only structure prediction\n- RNA only structure prediction  \n- Protein-RNA complex structure prediction\n\nFeatures:\n- RNA modification support (2''-O-methyl, 2''-fluoro) with CCD code mapping\n- Sequence validation for proteins and RNA\n- Auto-detection of modified vs plain RNA sequences\n- Mode-specific output filenames and usage tips\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n)\")"
+    ]
+  }
+}
